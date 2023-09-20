@@ -71,6 +71,7 @@ class Head(nn.Module):
     
     def __init__(self, head_size):
         super().__init__()
+        self.head_size = head_size
         self.key = nn.Linear(n_embed, head_size, bias=False)
         self.query = nn.Linear(n_embed, head_size, bias=False)
         self.value = nn.Linear(n_embed, head_size, bias=False)
@@ -82,7 +83,7 @@ class Head(nn.Module):
         q = self.query(x)
         
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-1,-2) * C ** (-0.5) # (B,T,C) @ (B,C,T) -> (B,T,T)
+        wei = q @ k.transpose(-1,-2) * self.head_size ** (-0.5) # (B,T,C) @ (B,C,T) -> (B,T,T)
         wei = wei.masked_fill(self.tril[:T, :T]==0, float('-inf')) # (B, T, T) # mask out the upper triangular part of the matrix
         wei = F.softmax(wei, dim=-1) # (B,T,T)
         wei = self.dropout(wei) # Prevent some of the nodes from communicating 
