@@ -100,7 +100,7 @@ class MultiHeadAttention(nn.Module):
         
 
 class FeedForward(nn.Module):
-    """ a simple linear layer followed by a non-linearity """
+    """ a simple linear layer followed by a non-linearity. FeedForward is applied to each token independently """
 
     def __init__(self, n_embed):
         super().__init__()
@@ -112,6 +112,25 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+
+class Block(nn.Module):
+    
+    def __init__(self, n_embed, n_head):
+        #n_embed: embedding dimension, n_head: number of heads 
+        super().__init__()
+        head_size = n_embed // n_head
+        self.sa = MultiHeadAttention(n_head, head_size)
+        self.ffwd = FeedForward(n_embed)
+        
+    def forward(self, x):
+        x = x + self.sa(x)
+        x = x + self.ffwd(x)
+        return x
+        
+    
+    
+    
+    
 class BigramLanguageModel(nn.Module):
     
     def __init__(self):
@@ -119,8 +138,11 @@ class BigramLanguageModel(nn.Module):
         # each token directly readsoff the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # we are going to plug out the rows of this matrix and arrange them in a (b,t,c) tensor. So for character 24 we take 24th row
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
-        self.sa_heads = MultiHeadAttention(4, n_embed//4) # i.e 4 heads of 8-dimensional self-attention. 4 Communication channels
-        self.ffwd = FeedForward(n_embed)
+        self.blocks = nn.Sequential(
+            Block(n_embed, 4),
+            Block(n_embed, 4),
+            Block(n_embed, 4),
+           )
         self.lm_head = nn.Linear(n_embed, vocab_size)
         
     def forward(self, idx, targets=None):
@@ -130,7 +152,7 @@ class BigramLanguageModel(nn.Module):
         tok_emb = self.token_embedding_table(idx) # (B,T,C) -> look at torch docs they want (B,C, ..) shape, with C at second postition
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C) # basically we are saying that the first token is at position 0, the second at position 1, etc.
         x = tok_emb + pos_emb # (B,T,C)
-        x = self.sa_heads(x) # (B,T,C)
+        x = self.blocks(x) # (B,T,C)
         logits = self.lm_head(x) # (B,T, vocab_size)
         
         if targets is None: 
