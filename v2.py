@@ -94,9 +94,12 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(num_heads*head_size, n_embed) # This is for residual skip connection. Projection is a linear combination of previous output.
         
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1) #
+        out = torch.cat([h(x) for h in self.heads], dim=-1) # (B,T,C)
+        out = self.proj(out) # (B,T,C)
+        return out
         
 
 class FeedForward(nn.Module):
@@ -123,6 +126,7 @@ class Block(nn.Module):
         self.ffwd = FeedForward(n_embed)
         
     def forward(self, x):
+        # We have x + self.sa(x) and x + self.ffwd(x) in the paper, such that we have the residual skip connections here.
         x = x + self.sa(x)
         x = x + self.ffwd(x)
         return x
