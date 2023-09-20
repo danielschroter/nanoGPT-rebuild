@@ -13,6 +13,8 @@ learning_rate = 1e-3
 device = "cuda" if torch.cuda.is_available() else "cpu"
 eval_iters = 200
 n_embed = 32
+n_head = 4
+n_layer = 4
 # ---------------
 
 torch.manual_seed(1337)
@@ -108,8 +110,9 @@ class FeedForward(nn.Module):
     def __init__(self, n_embed):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embed, n_embed),
+            nn.Linear(n_embed, 4 * n_embed), # 4 times the embedding dimension, because we want to have a lot of parameters. In paper its 512 -> 2048
             nn.ReLU(),
+            nn.Linear(4 * n_embed, n_embed)
         )
         
     def forward(self, x):
@@ -124,11 +127,13 @@ class Block(nn.Module):
         head_size = n_embed // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedForward(n_embed)
+        self.ln1 = nn.LayerNorm(n_embed)
+        self.ln2 = nn.LayerNorm(n_embed)
         
     def forward(self, x):
         # We have x + self.sa(x) and x + self.ffwd(x) in the paper, such that we have the residual skip connections here.
-        x = x + self.sa(x)
-        x = x + self.ffwd(x)
+        x = x + self.sa(self.ln1(x)) # Layer Norms before the computation (More Common nowadays than after as in the original paper)
+        x = x + self.ffwd(self.ln2(x))
         return x
         
     
@@ -142,11 +147,8 @@ class BigramLanguageModel(nn.Module):
         # each token directly readsoff the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # we are going to plug out the rows of this matrix and arrange them in a (b,t,c) tensor. So for character 24 we take 24th row
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
-        self.blocks = nn.Sequential(
-            Block(n_embed, 4),
-            Block(n_embed, 4),
-            Block(n_embed, 4),
-           )
+        self.blocks = nn.Sequential(*[Block(n_embed, n_head=n_head) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_embed) # final layer norm
         self.lm_head = nn.Linear(n_embed, vocab_size)
         
     def forward(self, idx, targets=None):
@@ -157,6 +159,7 @@ class BigramLanguageModel(nn.Module):
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C) # basically we are saying that the first token is at position 0, the second at position 1, etc.
         x = tok_emb + pos_emb # (B,T,C)
         x = self.blocks(x) # (B,T,C)
+        x = self.ln_f(x)
         logits = self.lm_head(x) # (B,T, vocab_size)
         
         if targets is None: 
